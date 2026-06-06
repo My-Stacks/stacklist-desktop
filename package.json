@@ -1,0 +1,25 @@
+{
+  "name": "stacklist-desktop",
+  "version": "1.0.0",
+  "productName": "Stacklist",
+  "main": "src/main.js",
+  "author": "Stacklist",
+  "license": "UNLICENSED",
+  "scripts": {
+    "postinstall": "sh scripts/rename-dev-electron.sh",
+    "start": "electron .",
+    "build:mac": "electron-builder --mac --publish=never",
+    "build:win": "electron-builder --win --publish=never",
+    "build:linux": "electron-builder --linux --publish=never",
+    "publish": "electron-builder --publish=always",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.0.0"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}
