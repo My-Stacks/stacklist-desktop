@@ -55,7 +55,7 @@ function createWindow() {
   win.webContents.setUserAgent(ua);
 
   // In dev, try localhost first so we get unminified React error messages
-  const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.app';
+  const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.com';
   win.loadURL(startURL);
 
   win.webContents.on('dom-ready', () => {
@@ -137,7 +137,7 @@ function createWindow() {
   win.webContents.on('will-navigate', (event, url) => {
     try {
       const { hostname } = new URL(url);
-      if (!hostname.endsWith('stacklist.app') && hostname !== 'localhost') {
+      if (!hostname.endsWith('stacklist.app') && !hostname.endsWith('stacklist.com') && hostname !== 'localhost') {
         event.preventDefault();
         shell.openExternal(url);
       }
