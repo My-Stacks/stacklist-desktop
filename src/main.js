@@ -55,7 +55,7 @@ function createWindow() {
   win.webContents.setUserAgent(ua);
 
   // In dev, try localhost first so we get unminified React error messages
-  const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.com';
+  const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.com/login';
   win.loadURL(startURL);
 
   win.webContents.on('dom-ready', () => {
@@ -81,6 +81,13 @@ function createWindow() {
   win.once('ready-to-show', () => {
     win.show();
     if (isDev) win.webContents.openDevTools();
+  });
+
+  // Cmd+Shift+I opens DevTools in any build (useful for diagnosing prod issues)
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.meta && input.shift && input.key.toLowerCase() === 'i') {
+      win.webContents.toggleDevTools();
+    }
   });
 
   // Persist window bounds on close

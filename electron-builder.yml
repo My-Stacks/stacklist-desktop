@@ -52,5 +52,5 @@ linux:
 
 publish:
   provider: github
-  owner: stacklist
+  owner: My-Stacks
   repo: stacklist-desktop
