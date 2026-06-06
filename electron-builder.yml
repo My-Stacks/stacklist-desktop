@@ -20,8 +20,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   icon: build/icon.icns
-  notarize:
-    teamId: ${env.APPLE_TEAM_ID}
+  notarize: true
 
 dmg:
   # background: build/dmg-background.png
