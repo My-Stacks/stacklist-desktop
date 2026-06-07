@@ -1,6 +1,6 @@
 {
   "name": "stacklist-desktop",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "productName": "Stacklist",
   "main": "src/main.js",
   "author": "Stacklist",

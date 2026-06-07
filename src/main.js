@@ -332,16 +332,27 @@ function setupAutoUpdater() {
       .then(({ response }) => {
         if (response === 0) {
           autoUpdater.downloadUpdate();
+          // Show a non-blocking progress notification while downloading
+          if (mainWin) {
+            mainWin.setProgressBar(0.05); // indeterminate-ish start
+          }
         }
       });
   });
 
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWin) {
+      mainWin.setProgressBar(progress.percent / 100);
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWin) mainWin.setProgressBar(-1); // clear progress bar
     dialog
       .showMessageBox({
         type: 'info',
         title: 'Update Ready',
-        message: 'A new version has been downloaded. Restart Stacklist to apply the update.',
+        message: `Version ${info.version} is ready. Restart Stacklist to apply the update.`,
         buttons: ['Restart Now', 'Later'],
         defaultId: 0,
         cancelId: 1,
@@ -354,7 +365,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('error', (err) => {
-    // Log but don't surface a dialog — update failures are non-critical
+    if (mainWin) mainWin.setProgressBar(-1);
     console.error('[auto-updater] error:', err);
   });
 
