@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld('electronApp', {
   isElectron: true,
   platform: process.platform,
   getVersion: () => ipcRenderer.invoke('app:get-version'),
+  copyURL: () => ipcRenderer.invoke('app:copy-url'),
 });

@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
@@ -80,6 +80,52 @@ function createWindow() {
 
   win.webContents.on('did-fail-load', (event, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
+  });
+
+  // Inject draggable title bar + copy-URL button on every hard navigation.
+  // SPA navigations don't re-fire did-finish-load so the bar persists naturally.
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.insertCSS(`
+      #_el-bar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 28px;
+        -webkit-app-region: drag;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        pointer-events: all;
+      }
+      #_el-copy {
+        -webkit-app-region: no-drag;
+        margin-right: 10px;
+        width: 22px; height: 22px;
+        display: flex; align-items: center; justify-content: center;
+        border: none; background: none; padding: 0;
+        cursor: pointer;
+        color: rgba(128,128,128,0.5);
+        opacity: 0;
+        transition: opacity 0.15s, color 0.15s;
+        border-radius: 4px;
+      }
+      #_el-bar:hover #_el-copy { opacity: 1; }
+      #_el-copy:hover { color: rgba(128,128,128,1) !important; }
+    `).catch(() => {});
+
+    win.webContents.executeJavaScript(`
+      if (!document.getElementById('_el-bar')) {
+        const bar = document.createElement('div');
+        bar.id = '_el-bar';
+        const btn = document.createElement('button');
+        btn.id = '_el-copy';
+        btn.title = 'Copy page URL';
+        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+        btn.onclick = () => window.electronApp.copyURL();
+        bar.appendChild(btn);
+        document.body.appendChild(bar);
+      }
+    `).catch(() => {});
   });
 
   // Show only once the web content is painted to avoid a white flash
@@ -322,6 +368,9 @@ function setupAutoUpdater() {
 // IPC handlers
 // ---------------------------------------------------------------------------
 ipcMain.handle('app:get-version', () => app.getVersion());
+ipcMain.handle('app:copy-url', () => {
+  if (mainWin) clipboard.writeText(mainWin.webContents.getURL());
+});
 
 // ---------------------------------------------------------------------------
 // App lifecycle
