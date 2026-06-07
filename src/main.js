@@ -12,6 +12,11 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 app.name = isDev ? 'Stacklist Dev' : 'Stacklist';
 
+// Kept alive across hide/show cycles so the web session is preserved.
+let mainWin = null;
+// Set to true when the user explicitly quits (Cmd+Q / menu Quit).
+let isQuitting = false;
+
 // ---------------------------------------------------------------------------
 // Persistent window-state store
 // ---------------------------------------------------------------------------
@@ -90,12 +95,17 @@ function createWindow() {
     }
   });
 
-  // Persist window bounds on close
-  win.on('close', () => {
+  // On macOS: hide instead of close so the session is preserved.
+  // Real quit (Cmd+Q) sets isQuitting=true first via before-quit.
+  win.on('close', (e) => {
     const isMaximized = win.isMaximized();
-    // Only capture bounds when not maximized so we have a sane restored size
     const bounds = isMaximized ? {} : win.getBounds();
     store.set('windowBounds', { ...bounds, isMaximized });
+
+    if (process.platform === 'darwin' && !isQuitting) {
+      e.preventDefault();
+      win.hide();
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -324,22 +334,28 @@ app.whenReady().then(() => {
 
   Menu.setApplicationMenu(buildMenu());
 
-  createWindow();
+  mainWin = createWindow();
 
   if (!isDev) {
     setupAutoUpdater();
   }
 
-  // macOS: re-create the window when the dock icon is clicked and no windows exist
+  // macOS: show the existing hidden window, or create one if it was never made.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+    if (mainWin) {
+      mainWin.show();
+    } else {
+      mainWin = createWindow();
     }
   });
 });
 
-// Quit on all windows closed, except on macOS where the app stays active
-// until the user explicitly quits (Cmd+Q / app menu Quit).
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
+// On non-macOS, quit when all windows are closed.
+// On macOS windows are hidden (not closed) so this only fires on explicit quit.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
