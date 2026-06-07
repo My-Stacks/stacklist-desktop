@@ -20,29 +20,34 @@ const TITLEBAR_CSS = `
   #_el-bar {
     position: fixed;
     top: 0; left: 0; right: 0;
-    height: 28px;
+    height: 38px;
     -webkit-app-region: drag;
     app-region: drag;
     z-index: 2147483647;
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    background: rgba(246, 246, 246, 0.88);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   }
   #_el-copy {
     -webkit-app-region: no-drag;
     app-region: no-drag;
-    margin-right: 10px;
-    width: 22px; height: 22px;
+    margin-right: 12px;
+    width: 24px; height: 24px;
     display: flex; align-items: center; justify-content: center;
     border: none; background: none; padding: 0;
     cursor: pointer;
-    color: rgba(128,128,128,0.5);
+    color: rgba(0, 0, 0, 0.3);
     opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
-    border-radius: 4px;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+    border-radius: 5px;
   }
   #_el-bar:hover #_el-copy { opacity: 1; }
-  #_el-copy:hover { color: rgba(128,128,128,1) !important; }
+  #_el-copy:hover { color: rgba(0,0,0,0.7) !important; background: rgba(0,0,0,0.06); }
+  body { padding-top: 38px !important; }
 `;
 
 const TITLEBAR_JS = `
