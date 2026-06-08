@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 
@@ -76,6 +77,38 @@ app.name = isDev ? 'Stacklist Dev' : 'Stacklist';
 let mainWin = null;
 // Set to true when the user explicitly quits (Cmd+Q / menu Quit).
 let isQuitting = false;
+// File dropped onto the dock icon before the window was ready to receive it.
+let pendingFileDrop = null;
+
+// ---------------------------------------------------------------------------
+// Dock icon file drop (macOS: drag a PDF/MD/TXT onto the dock icon)
+// ---------------------------------------------------------------------------
+const SUPPORTED_DROP_EXTS = new Set(['pdf', 'md', 'txt']);
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  const ext = path.extname(filePath).toLowerCase().replace('.', '');
+  if (!SUPPORTED_DROP_EXTS.has(ext)) return;
+
+  const encoding = ext === 'pdf' ? null : 'utf8';
+  fs.readFile(filePath, encoding, (err, content) => {
+    if (err) { console.error('[open-file] read error:', err); return; }
+    const payload = {
+      name: path.basename(filePath),
+      type: ext,
+      // PDF bytes → base64 so they survive IPC serialisation; text stays as-is.
+      content: ext === 'pdf' ? content.toString('base64') : content,
+    };
+
+    if (mainWin) {
+      mainWin.show();
+      mainWin.webContents.send('electron:file-drop', payload);
+    } else {
+      // App not open yet — hold the payload until the window is ready.
+      pendingFileDrop = payload;
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Persistent window-state store
@@ -411,6 +444,14 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(buildMenu());
 
   mainWin = createWindow();
+
+  // Flush any file dropped onto the dock before the window existed.
+  mainWin.webContents.once('did-finish-load', () => {
+    if (pendingFileDrop) {
+      mainWin.webContents.send('electron:file-drop', pendingFileDrop);
+      pendingFileDrop = null;
+    }
+  });
 
   if (!isDev) {
     setupAutoUpdater();
