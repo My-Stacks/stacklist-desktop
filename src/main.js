@@ -48,7 +48,7 @@ const TITLEBAR_CSS = `
   }
   #_el-bar:hover #_el-copy { opacity: 1; }
   #_el-copy:hover { color: rgba(0,0,0,0.7) !important; background: rgba(0,0,0,0.06); }
-  #__next > div:first-child {
+  .h-svh {
     margin-top: 38px !important;
     height: calc(100svh - 38px) !important;
   }
