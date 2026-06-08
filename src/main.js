@@ -21,7 +21,7 @@ const TITLEBAR_CSS = `
   #_el-bar {
     position: fixed;
     top: 0; left: 0; right: 0;
-    height: 38px;
+    height: 28px;
     -webkit-app-region: drag;
     app-region: drag;
     z-index: 2147483647;
@@ -48,7 +48,6 @@ const TITLEBAR_CSS = `
   }
   #_el-bar:hover #_el-copy { opacity: 1; }
   #_el-copy:hover { color: rgba(0,0,0,0.7) !important; background: rgba(0,0,0,0.06); }
-  body { padding-top: 38px !important; }
 `;
 
 const TITLEBAR_JS = `
