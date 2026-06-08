@@ -18,6 +18,12 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 // React has already completed its initial hydration by this point.
 // ---------------------------------------------------------------------------
 const TITLEBAR_CSS = `
+  body {
+    padding-top: 38px !important;
+  }
+  .h-svh {
+    height: calc(100svh - 38px) !important;
+  }
   #_el-bar {
     position: fixed;
     top: 0; left: 0; right: 0;
@@ -37,21 +43,15 @@ const TITLEBAR_CSS = `
     -webkit-app-region: no-drag;
     app-region: no-drag;
     margin-right: 12px;
-    width: 24px; height: 24px;
+    width: 28px; height: 28px;
     display: flex; align-items: center; justify-content: center;
     border: none; background: none; padding: 0;
     cursor: pointer;
-    color: rgba(0, 0, 0, 0.3);
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s, background 0.15s;
+    color: rgba(0, 0, 0, 0.4);
     border-radius: 5px;
+    flex-shrink: 0;
   }
-  #_el-bar:hover #_el-copy { opacity: 1; }
-  #_el-copy:hover { color: rgba(0,0,0,0.7) !important; background: rgba(0,0,0,0.06); }
-  .h-svh {
-    margin-top: 38px !important;
-    height: calc(100svh - 38px) !important;
-  }
+  #_el-copy:hover { color: rgba(0,0,0,0.75); background: rgba(0,0,0,0.06); }
 `;
 
 const TITLEBAR_JS = `
@@ -62,7 +62,7 @@ const TITLEBAR_JS = `
     const btn = document.createElement('button');
     btn.id = '_el-copy';
     btn.title = 'Copy page URL';
-    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
     btn.addEventListener('click', () => window.electronApp && window.electronApp.copyURL());
     bar.appendChild(btn);
     document.body.appendChild(bar);
