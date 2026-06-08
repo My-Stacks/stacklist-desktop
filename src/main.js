@@ -21,7 +21,7 @@ const TITLEBAR_CSS = `
   #_el-bar {
     position: fixed;
     top: 0; left: 0; right: 0;
-    height: 28px;
+    height: 38px;
     -webkit-app-region: drag;
     app-region: drag;
     z-index: 2147483647;
