@@ -2,7 +2,6 @@
 
 const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 
@@ -10,69 +9,6 @@ const Store = require('electron-store');
 // Dev-mode detection
 // ---------------------------------------------------------------------------
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-
-// ---------------------------------------------------------------------------
-// Draggable title bar — injected from main process so React can't wipe it.
-// insertCSS creates a stylesheet node (immune to React's DOM reconciliation).
-// executeJavaScript appends the DOM element after did-finish-load, meaning
-// React has already completed its initial hydration by this point.
-// ---------------------------------------------------------------------------
-const TITLEBAR_CSS = `
-  body {
-    padding-top: 38px !important;
-  }
-  .h-svh {
-    height: calc(100svh - 38px) !important;
-  }
-  #_el-bar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 38px;
-    -webkit-app-region: drag;
-    app-region: drag;
-    z-index: 2147483647;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    background: rgba(246, 246, 246, 0.88);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  }
-  #_el-copy {
-    -webkit-app-region: no-drag;
-    app-region: no-drag;
-    margin-right: 12px;
-    width: 28px; height: 28px;
-    display: flex; align-items: center; justify-content: center;
-    border: none; background: none; padding: 0;
-    cursor: pointer;
-    color: rgba(0, 0, 0, 0.4);
-    border-radius: 5px;
-    flex-shrink: 0;
-  }
-  #_el-copy:hover { color: rgba(0,0,0,0.75); background: rgba(0,0,0,0.06); }
-`;
-
-const TITLEBAR_JS = `
-  (() => {
-    if (document.getElementById('_el-bar')) return;
-    const bar = document.createElement('div');
-    bar.id = '_el-bar';
-    const btn = document.createElement('button');
-    btn.id = '_el-copy';
-    btn.title = 'Copy page URL';
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
-    btn.addEventListener('click', () => window.electronApp && window.electronApp.copyURL());
-    bar.appendChild(btn);
-    document.body.appendChild(bar);
-  })();
-`;
-
-function injectTitleBar(webContents) {
-  webContents.insertCSS(TITLEBAR_CSS).catch(() => {});
-  webContents.executeJavaScript(TITLEBAR_JS).catch(() => {});
-}
 
 app.name = isDev ? 'Stacklist Dev' : 'Stacklist';
 
@@ -137,7 +73,7 @@ function createWindow() {
     minHeight: 600,
     title: isDev ? 'Stacklist Dev' : 'Stacklist',
     show: false, // shown on 'ready-to-show' to avoid blank flash
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -158,19 +94,6 @@ function createWindow() {
   // In dev, try localhost first so we get unminified React error messages
   const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.com/login';
   win.loadURL(startURL);
-
-  // did-finish-load fires after the page is fully loaded and React has run its
-  // initial render, so injected DOM nodes land after hydration is complete.
-  win.webContents.on('did-finish-load', () => {
-    console.log('[electron] did-finish-load:', win.webContents.getURL());
-    injectTitleBar(win.webContents);
-  });
-
-  // SPA navigations (pushState) don't trigger did-finish-load; re-check here
-  // in case React replaced body during a route transition.
-  win.webContents.on('did-navigate-in-page', () => {
-    injectTitleBar(win.webContents);
-  });
 
   win.webContents.on('did-fail-load', (event, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
@@ -321,6 +244,12 @@ function buildMenu() {
               { role: 'selectAll' },
             ]
           : [{ role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }]),
+        { type: 'separator' },
+        {
+          label: 'Copy Page URL',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: () => { if (mainWin) clipboard.writeText(mainWin.webContents.getURL()); },
+        },
       ],
     },
 
