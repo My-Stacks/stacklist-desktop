@@ -19,20 +19,14 @@ mac:
       name: PDF Document
       mimeType: application/pdf
       role: Viewer
-      utis:
-        - com.adobe.pdf
     - ext: md
       name: Markdown File
       mimeType: text/markdown
       role: Viewer
-      utis:
-        - net.daringfireball.markdown
     - ext: txt
       name: Text File
       mimeType: text/plain
       role: Viewer
-      utis:
-        - public.plain-text
   target:
     - target: dmg
     - target: zip
