@@ -10,27 +10,29 @@ files:
   - src/**/*
   - package.json
 
-fileAssociations:
-  - ext: pdf
-    name: PDF Document
-    mimeType: application/pdf
-    role: Viewer
-    utis:
-      - com.adobe.pdf
-  - ext: md
-    name: Markdown File
-    mimeType: text/markdown
-    role: Viewer
-    utis:
-      - net.daringfireball.markdown
-  - ext: txt
-    name: Text File
-    mimeType: text/plain
-    role: Viewer
-    utis:
-      - public.plain-text
-
 mac:
+  # macOS-only: dock-icon drag-and-drop requires declared document types
+  # (CFBundleDocumentTypes). The open-file event this feeds is mac-only, so
+  # don't register these on Windows where they'd be dead registry entries.
+  fileAssociations:
+    - ext: pdf
+      name: PDF Document
+      mimeType: application/pdf
+      role: Viewer
+      utis:
+        - com.adobe.pdf
+    - ext: md
+      name: Markdown File
+      mimeType: text/markdown
+      role: Viewer
+      utis:
+        - net.daringfireball.markdown
+    - ext: txt
+      name: Text File
+      mimeType: text/plain
+      role: Viewer
+      utis:
+        - public.plain-text
   target:
     - target: dmg
     - target: zip
