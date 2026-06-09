@@ -1,7 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard, Tray, globalShortcut } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 
@@ -14,10 +15,167 @@ app.name = isDev ? 'Stacklist Dev' : 'Stacklist';
 
 // Kept alive across hide/show cycles so the web session is preserved.
 let mainWin = null;
+let tray = null;
 // Set to true when the user explicitly quits (Cmd+Q / menu Quit).
 let isQuitting = false;
 // File dropped onto the dock icon before the window was ready to receive it.
 let pendingFileDrop = null;
+
+// ---------------------------------------------------------------------------
+// Single-instance lock — required so Windows deep-links land in the running
+// instance rather than launching a second copy.
+// ---------------------------------------------------------------------------
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+app.on('second-instance', (_event, commandLine) => {
+  // Bring the existing window to front
+  if (mainWin) {
+    if (mainWin.isMinimized()) mainWin.restore();
+    mainWin.show();
+    mainWin.focus();
+  }
+  // Windows: deep-link URL arrives as a command-line argument
+  const url = commandLine.find(arg => arg.startsWith('stacklist://'));
+  if (url && mainWin) {
+    mainWin.loadURL(url.replace(/^stacklist:\/\//, 'https://'));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Protocol handler — stacklist:// deep links
+// macOS fires open-url; Windows/Linux land in second-instance (above).
+// ---------------------------------------------------------------------------
+if (process.defaultApp && process.argv.length >= 2) {
+  app.setAsDefaultProtocolClient('stacklist', process.execPath, [path.resolve(process.argv[1])]);
+} else {
+  app.setAsDefaultProtocolClient('stacklist');
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (mainWin) {
+    mainWin.show();
+    mainWin.focus();
+    mainWin.loadURL(url.replace(/^stacklist:\/\//, 'https://'));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Find-in-page bar — injected into the page on load, hidden until Cmd+F.
+// Uses Chromium's native findInPage API for accurate match highlighting.
+// ---------------------------------------------------------------------------
+const FIND_BAR_CSS = `
+  #_el-find {
+    position: fixed;
+    top: 8px;
+    right: 16px;
+    z-index: 2147483647;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.96);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    padding: 6px 8px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13px;
+  }
+  #_el-find.open { display: flex; }
+  #_el-find-input {
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 5px;
+    padding: 3px 7px;
+    font-size: 13px;
+    outline: none;
+    width: 180px;
+    background: white;
+    color: #000;
+  }
+  #_el-find-input:focus {
+    border-color: rgba(0, 110, 255, 0.5);
+    box-shadow: 0 0 0 2px rgba(0, 110, 255, 0.15);
+  }
+  #_el-find-count {
+    color: rgba(0, 0, 0, 0.4);
+    font-size: 12px;
+    min-width: 52px;
+    text-align: center;
+  }
+  #_el-find-prev, #_el-find-next, #_el-find-close {
+    border: none;
+    background: none;
+    padding: 4px 6px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: rgba(0, 0, 0, 0.55);
+    font-size: 13px;
+    line-height: 1;
+  }
+  #_el-find-prev:hover, #_el-find-next:hover, #_el-find-close:hover {
+    background: rgba(0, 0, 0, 0.07);
+  }
+`;
+
+const FIND_BAR_JS = `
+  (() => {
+    if (document.getElementById('_el-find')) return;
+    const bar = document.createElement('div');
+    bar.id = '_el-find';
+    bar.innerHTML =
+      '<input id="_el-find-input" type="text" placeholder="Find…" spellcheck="false" />' +
+      '<span id="_el-find-count"></span>' +
+      '<button id="_el-find-prev" title="Previous (Shift+Enter)">↑</button>' +
+      '<button id="_el-find-next" title="Next (Enter)">↓</button>' +
+      '<button id="_el-find-close" title="Close (Esc)">✕</button>';
+    document.body.appendChild(bar);
+
+    const input = document.getElementById('_el-find-input');
+    const count = document.getElementById('_el-find-count');
+
+    function search(forward) {
+      const text = input.value.trim();
+      if (!text) {
+        window.electronApp && window.electronApp.stopFindInPage();
+        count.textContent = '';
+        return;
+      }
+      window.electronApp && window.electronApp.findInPage(text, { forward: forward, findNext: true });
+    }
+
+    function close() {
+      bar.classList.remove('open');
+      window.electronApp && window.electronApp.stopFindInPage();
+      count.textContent = '';
+      input.value = '';
+    }
+
+    input.addEventListener('input', function() { search(true); });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); search(!e.shiftKey); }
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    document.getElementById('_el-find-prev').addEventListener('click', function() { search(false); });
+    document.getElementById('_el-find-next').addEventListener('click', function() { search(true); });
+    document.getElementById('_el-find-close').addEventListener('click', close);
+
+    window.electronApp && window.electronApp.onFindResult(function(result) {
+      if (!result || result.matches === undefined) { count.textContent = ''; return; }
+      count.textContent = result.matches === 0 ? 'No results' : (result.activeMatchOrdinal + ' of ' + result.matches);
+    });
+
+    window._elFindShow = function() {
+      bar.classList.add('open');
+      input.focus();
+      input.select();
+    };
+  })();
+`;
 
 // ---------------------------------------------------------------------------
 // Dock icon file drop (macOS: drag a PDF/MD/TXT onto the dock icon)
@@ -95,10 +253,15 @@ function createWindow() {
   const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.com/login';
   win.loadURL(startURL);
 
-  win.webContents.on('did-fail-load', (event, code, desc, url) => {
+  win.webContents.on('did-fail-load', (_event, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
   });
 
+  // Inject find bar on every full-page load (idempotent — JS guards on element existence)
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.insertCSS(FIND_BAR_CSS).catch(() => {});
+    win.webContents.executeJavaScript(FIND_BAR_JS).catch(() => {});
+  });
 
   // Show only once the web content is painted to avoid a white flash
   win.once('ready-to-show', () => {
@@ -106,11 +269,22 @@ function createWindow() {
     if (isDev) win.webContents.openDevTools();
   });
 
-  // Cmd+Shift+I opens DevTools in any build (useful for diagnosing prod issues)
   win.webContents.on('before-input-event', (event, input) => {
+    // Cmd+Shift+I → DevTools
     if (input.meta && input.shift && input.key.toLowerCase() === 'i') {
       win.webContents.toggleDevTools();
     }
+    // Cmd+F / Ctrl+F → open find bar (prevent the web app from handling it)
+    if ((input.meta || input.control) && !input.shift && !input.alt &&
+        input.key.toLowerCase() === 'f' && input.type === 'keyDown') {
+      event.preventDefault();
+      win.webContents.executeJavaScript('window._elFindShow && window._elFindShow()').catch(() => {});
+    }
+  });
+
+  // Forward Chromium find results to the renderer so the find bar can show "X of Y"
+  win.webContents.on('found-in-page', (_event, result) => {
+    win.webContents.send('find-result', result);
   });
 
   // On macOS: hide instead of close so the session is preserved.
@@ -250,6 +424,15 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+C',
           click: () => { if (mainWin) clipboard.writeText(mainWin.webContents.getURL()); },
         },
+        {
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => {
+            if (mainWin) {
+              mainWin.webContents.executeJavaScript('window._elFindShow && window._elFindShow()').catch(() => {});
+            }
+          },
+        },
       ],
     },
 
@@ -360,8 +543,17 @@ function setupAutoUpdater() {
 // IPC handlers
 // ---------------------------------------------------------------------------
 ipcMain.handle('app:get-version', () => app.getVersion());
+
 ipcMain.handle('app:copy-url', () => {
   if (mainWin) clipboard.writeText(mainWin.webContents.getURL());
+});
+
+ipcMain.handle('app:find-in-page', (_, text, options) => {
+  if (mainWin && text) mainWin.webContents.findInPage(text, options || {});
+});
+
+ipcMain.handle('app:stop-find-in-page', () => {
+  if (mainWin) mainWin.webContents.stopFindInPage('clearSelection');
 });
 
 // ---------------------------------------------------------------------------
@@ -385,6 +577,44 @@ app.whenReady().then(() => {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Tray icon — keeps the app accessible from the menu bar (Mac) or system
+  // tray (Windows) even when the window is hidden.
+  // ---------------------------------------------------------------------------
+  const trayIconPath = path.join(__dirname, '..', 'build', 'icon.png');
+  const trayImg = nativeImage.createFromPath(trayIconPath).resize({ width: 16, height: 16 });
+  trayImg.setTemplateImage(true); // macOS: renders as monochrome template, adapts to dark/light bar
+  tray = new Tray(trayImg);
+  tray.setToolTip('Stacklist');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Stacklist', click: () => { mainWin.show(); mainWin.focus(); } },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
+  ]));
+  // Left-click: show/focus (macOS shows context menu on both clicks by default;
+  // the explicit click handler makes left-click bring the window instead)
+  tray.on('click', () => {
+    if (mainWin.isVisible()) {
+      mainWin.focus();
+    } else {
+      mainWin.show();
+      mainWin.focus();
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Global shortcut — bring Stacklist to front from anywhere in the OS.
+  // ---------------------------------------------------------------------------
+  const registered = globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    if (mainWin) {
+      mainWin.show();
+      mainWin.focus();
+    }
+  });
+  if (!registered) {
+    console.warn('[global-shortcut] CommandOrControl+Shift+Space could not be registered (conflict with another app)');
+  }
+
   if (!isDev) {
     setupAutoUpdater();
   }
@@ -401,6 +631,10 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 // On non-macOS, quit when all windows are closed.
