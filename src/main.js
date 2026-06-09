@@ -403,7 +403,11 @@ function setupAutoUpdater() {
 // IPC handlers
 // ---------------------------------------------------------------------------
 ipcMain.handle('app:get-version', () => app.getVersion());
-
+// Synchronous variant so the renderer can stamp the app version on its very
+// first analytics event (including pre-auth login-page events).
+ipcMain.on('app:get-version-sync', (e) => {
+  e.returnValue = app.getVersion();
+});
 ipcMain.handle('app:copy-url', () => {
   if (mainWin) clipboard.writeText(mainWin.webContents.getURL());
 });
