@@ -1,7 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog, nativeImage, clipboard, Tray, globalShortcut } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 
@@ -14,10 +15,53 @@ app.name = isDev ? 'Stacklist Dev' : 'Stacklist';
 
 // Kept alive across hide/show cycles so the web session is preserved.
 let mainWin = null;
+let tray = null;
 // Set to true when the user explicitly quits (Cmd+Q / menu Quit).
 let isQuitting = false;
 // File dropped onto the dock icon before the window was ready to receive it.
 let pendingFileDrop = null;
+
+// ---------------------------------------------------------------------------
+// Single-instance lock — required so Windows deep-links land in the running
+// instance rather than launching a second copy.
+// ---------------------------------------------------------------------------
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+app.on('second-instance', (_event, commandLine) => {
+  // Bring the existing window to front
+  if (mainWin) {
+    if (mainWin.isMinimized()) mainWin.restore();
+    mainWin.show();
+    mainWin.focus();
+  }
+  // Windows: deep-link URL arrives as a command-line argument
+  const url = commandLine.find(arg => arg.startsWith('stacklist://'));
+  if (url && mainWin) {
+    mainWin.loadURL(url.replace(/^stacklist:\/\//, 'https://'));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Protocol handler — stacklist:// deep links
+// macOS fires open-url; Windows/Linux land in second-instance (above).
+// ---------------------------------------------------------------------------
+if (process.defaultApp && process.argv.length >= 2) {
+  app.setAsDefaultProtocolClient('stacklist', process.execPath, [path.resolve(process.argv[1])]);
+} else {
+  app.setAsDefaultProtocolClient('stacklist');
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (mainWin) {
+    mainWin.show();
+    mainWin.focus();
+    mainWin.loadURL(url.replace(/^stacklist:\/\//, 'https://'));
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Dock icon file drop (macOS: drag a PDF/MD/TXT onto the dock icon)
@@ -95,10 +139,9 @@ function createWindow() {
   const startURL = isDev ? 'http://localhost:3000' : 'https://stacklist.com/login';
   win.loadURL(startURL);
 
-  win.webContents.on('did-fail-load', (event, code, desc, url) => {
+  win.webContents.on('did-fail-load', (_event, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
   });
-
 
   // Show only once the web content is painted to avoid a white flash
   win.once('ready-to-show', () => {
@@ -106,8 +149,8 @@ function createWindow() {
     if (isDev) win.webContents.openDevTools();
   });
 
-  // Cmd+Shift+I opens DevTools in any build (useful for diagnosing prod issues)
-  win.webContents.on('before-input-event', (event, input) => {
+  win.webContents.on('before-input-event', (_event, input) => {
+    // Cmd+Shift+I → DevTools
     if (input.meta && input.shift && input.key.toLowerCase() === 'i') {
       win.webContents.toggleDevTools();
     }
@@ -390,6 +433,44 @@ app.whenReady().then(() => {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Tray icon — keeps the app accessible from the menu bar (Mac) or system
+  // tray (Windows) even when the window is hidden.
+  // ---------------------------------------------------------------------------
+  const trayIconPath = path.join(__dirname, '..', 'build', 'icon.png');
+  const trayImg = nativeImage.createFromPath(trayIconPath).resize({ width: 16, height: 16 });
+  trayImg.setTemplateImage(true); // macOS: renders as monochrome template, adapts to dark/light bar
+  tray = new Tray(trayImg);
+  tray.setToolTip('Stacklist');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Stacklist', click: () => { mainWin.show(); mainWin.focus(); } },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
+  ]));
+  // Left-click: show/focus (macOS shows context menu on both clicks by default;
+  // the explicit click handler makes left-click bring the window instead)
+  tray.on('click', () => {
+    if (mainWin.isVisible()) {
+      mainWin.focus();
+    } else {
+      mainWin.show();
+      mainWin.focus();
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Global shortcut — bring Stacklist to front from anywhere in the OS.
+  // ---------------------------------------------------------------------------
+  const registered = globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    if (mainWin) {
+      mainWin.show();
+      mainWin.focus();
+    }
+  });
+  if (!registered) {
+    console.warn('[global-shortcut] CommandOrControl+Shift+Space could not be registered (conflict with another app)');
+  }
+
   if (!isDev) {
     setupAutoUpdater();
   }
@@ -406,6 +487,10 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 // On non-macOS, quit when all windows are closed.
