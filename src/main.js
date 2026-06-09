@@ -64,120 +64,6 @@ app.on('open-url', (event, url) => {
 });
 
 // ---------------------------------------------------------------------------
-// Find-in-page bar — injected into the page on load, hidden until Cmd+F.
-// Uses Chromium's native findInPage API for accurate match highlighting.
-// ---------------------------------------------------------------------------
-const FIND_BAR_CSS = `
-  #_el-find {
-    position: fixed;
-    top: 8px;
-    right: 16px;
-    z-index: 2147483647;
-    display: none;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.96);
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    padding: 6px 8px;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 13px;
-  }
-  #_el-find.open { display: flex; }
-  #_el-find-input {
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    border-radius: 5px;
-    padding: 3px 7px;
-    font-size: 13px;
-    outline: none;
-    width: 180px;
-    background: white;
-    color: #000;
-  }
-  #_el-find-input:focus {
-    border-color: rgba(0, 110, 255, 0.5);
-    box-shadow: 0 0 0 2px rgba(0, 110, 255, 0.15);
-  }
-  #_el-find-count {
-    color: rgba(0, 0, 0, 0.4);
-    font-size: 12px;
-    min-width: 52px;
-    text-align: center;
-  }
-  #_el-find-prev, #_el-find-next, #_el-find-close {
-    border: none;
-    background: none;
-    padding: 4px 6px;
-    cursor: pointer;
-    border-radius: 4px;
-    color: rgba(0, 0, 0, 0.55);
-    font-size: 13px;
-    line-height: 1;
-  }
-  #_el-find-prev:hover, #_el-find-next:hover, #_el-find-close:hover {
-    background: rgba(0, 0, 0, 0.07);
-  }
-`;
-
-const FIND_BAR_JS = `
-  (() => {
-    if (document.getElementById('_el-find')) return;
-    const bar = document.createElement('div');
-    bar.id = '_el-find';
-    bar.innerHTML =
-      '<input id="_el-find-input" type="text" placeholder="Find…" spellcheck="false" />' +
-      '<span id="_el-find-count"></span>' +
-      '<button id="_el-find-prev" title="Previous (Shift+Enter)">↑</button>' +
-      '<button id="_el-find-next" title="Next (Enter)">↓</button>' +
-      '<button id="_el-find-close" title="Close (Esc)">✕</button>';
-    document.body.appendChild(bar);
-
-    const input = document.getElementById('_el-find-input');
-    const count = document.getElementById('_el-find-count');
-
-    function search(forward) {
-      const text = input.value.trim();
-      if (!text) {
-        window.electronApp && window.electronApp.stopFindInPage();
-        count.textContent = '';
-        return;
-      }
-      window.electronApp && window.electronApp.findInPage(text, { forward: forward, findNext: true });
-    }
-
-    function close() {
-      bar.classList.remove('open');
-      window.electronApp && window.electronApp.stopFindInPage();
-      count.textContent = '';
-      input.value = '';
-    }
-
-    input.addEventListener('input', function() { search(true); });
-    input.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); search(!e.shiftKey); }
-      if (e.key === 'Escape') { e.preventDefault(); close(); }
-    });
-    document.getElementById('_el-find-prev').addEventListener('click', function() { search(false); });
-    document.getElementById('_el-find-next').addEventListener('click', function() { search(true); });
-    document.getElementById('_el-find-close').addEventListener('click', close);
-
-    window.electronApp && window.electronApp.onFindResult(function(result) {
-      if (!result || result.matches === undefined) { count.textContent = ''; return; }
-      count.textContent = result.matches === 0 ? 'No results' : (result.activeMatchOrdinal + ' of ' + result.matches);
-    });
-
-    window._elFindShow = function() {
-      bar.classList.add('open');
-      input.focus();
-      input.select();
-    };
-  })();
-`;
-
-// ---------------------------------------------------------------------------
 // Dock icon file drop (macOS: drag a PDF/MD/TXT onto the dock icon)
 // ---------------------------------------------------------------------------
 const SUPPORTED_DROP_EXTS = new Set(['pdf', 'md', 'txt']);
@@ -257,34 +143,17 @@ function createWindow() {
     console.error('[electron] did-fail-load', code, desc, url);
   });
 
-  // Inject find bar on every full-page load (idempotent — JS guards on element existence)
-  win.webContents.on('did-finish-load', () => {
-    win.webContents.insertCSS(FIND_BAR_CSS).catch(() => {});
-    win.webContents.executeJavaScript(FIND_BAR_JS).catch(() => {});
-  });
-
   // Show only once the web content is painted to avoid a white flash
   win.once('ready-to-show', () => {
     win.show();
     if (isDev) win.webContents.openDevTools();
   });
 
-  win.webContents.on('before-input-event', (event, input) => {
+  win.webContents.on('before-input-event', (_event, input) => {
     // Cmd+Shift+I → DevTools
     if (input.meta && input.shift && input.key.toLowerCase() === 'i') {
       win.webContents.toggleDevTools();
     }
-    // Cmd+F / Ctrl+F → open find bar (prevent the web app from handling it)
-    if ((input.meta || input.control) && !input.shift && !input.alt &&
-        input.key.toLowerCase() === 'f' && input.type === 'keyDown') {
-      event.preventDefault();
-      win.webContents.executeJavaScript('window._elFindShow && window._elFindShow()').catch(() => {});
-    }
-  });
-
-  // Forward Chromium find results to the renderer so the find bar can show "X of Y"
-  win.webContents.on('found-in-page', (_event, result) => {
-    win.webContents.send('find-result', result);
   });
 
   // On macOS: hide instead of close so the session is preserved.
@@ -424,15 +293,6 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+C',
           click: () => { if (mainWin) clipboard.writeText(mainWin.webContents.getURL()); },
         },
-        {
-          label: 'Find…',
-          accelerator: 'CmdOrCtrl+F',
-          click: () => {
-            if (mainWin) {
-              mainWin.webContents.executeJavaScript('window._elFindShow && window._elFindShow()').catch(() => {});
-            }
-          },
-        },
       ],
     },
 
@@ -546,14 +406,6 @@ ipcMain.handle('app:get-version', () => app.getVersion());
 
 ipcMain.handle('app:copy-url', () => {
   if (mainWin) clipboard.writeText(mainWin.webContents.getURL());
-});
-
-ipcMain.handle('app:find-in-page', (_, text, options) => {
-  if (mainWin && text) mainWin.webContents.findInPage(text, options || {});
-});
-
-ipcMain.handle('app:stop-find-in-page', () => {
-  if (mainWin) mainWin.webContents.stopFindInPage('clearSelection');
 });
 
 // ---------------------------------------------------------------------------
