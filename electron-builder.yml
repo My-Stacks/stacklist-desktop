@@ -9,6 +9,17 @@ directories:
 files:
   - src/**/*
   - package.json
+  # Loaded at runtime for the tray (and dev dock) icon — buildResources are
+  # build-time only, so this must be listed explicitly to ship in the app.
+  - build/icon.png
+
+# Registers stacklist:// in Info.plist (CFBundleURLTypes) — without this,
+# setAsDefaultProtocolClient is a no-op on macOS and deep links never reach
+# the packaged app. Windows registers via the registry at runtime.
+protocols:
+  - name: Stacklist
+    schemes:
+      - stacklist
 
 mac:
   # macOS-only: dock-icon drag-and-drop requires declared document types
