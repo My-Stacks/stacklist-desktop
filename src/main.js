@@ -20,6 +20,51 @@ let tray = null;
 let isQuitting = false;
 // File dropped onto the dock icon before the window was ready to receive it.
 let pendingFileDrop = null;
+// Deep link received before the window existed (cold start via stacklist://).
+let pendingDeepLink = null;
+
+// ---------------------------------------------------------------------------
+// Hostname allowlisting — exact match or subdomain only. A bare endsWith()
+// would let e.g. "evilgoogle.com" pass as "google.com".
+// ---------------------------------------------------------------------------
+const APP_HOSTS = ['stacklist.com', 'stacklist.app'];
+const POPUP_HOSTS = [...APP_HOSTS, 'firebaseapp.com', 'google.com', 'googleapis.com'];
+
+function hostMatches(hostname, domain) {
+  return hostname === domain || hostname.endsWith('.' + domain);
+}
+
+function isAppHost(hostname) {
+  return hostname === 'localhost' || APP_HOSTS.some((d) => hostMatches(hostname, d));
+}
+
+// stacklist://stacklist.com/path → https://stacklist.com/path.
+// Returns null unless the target resolves to one of our own hosts, so a
+// crafted stacklist://evil.com link can't navigate the app window.
+function resolveDeepLink(rawUrl) {
+  try {
+    const target = new URL(rawUrl.replace(/^stacklist:\/\//, 'https://'));
+    if (APP_HOSTS.some((d) => hostMatches(target.hostname, d))) {
+      return target.toString();
+    }
+  } catch {
+    // malformed URL
+  }
+  return null;
+}
+
+function handleDeepLink(rawUrl) {
+  const httpsUrl = resolveDeepLink(rawUrl);
+  if (!httpsUrl) return;
+  if (mainWin) {
+    mainWin.show();
+    mainWin.focus();
+    mainWin.loadURL(httpsUrl);
+  } else {
+    // Cold start — load it once the window is created in whenReady.
+    pendingDeepLink = httpsUrl;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Single-instance lock — required so Windows deep-links land in the running
@@ -39,10 +84,17 @@ app.on('second-instance', (_event, commandLine) => {
   }
   // Windows: deep-link URL arrives as a command-line argument
   const url = commandLine.find(arg => arg.startsWith('stacklist://'));
-  if (url && mainWin) {
-    mainWin.loadURL(url.replace(/^stacklist:\/\//, 'https://'));
+  if (url) {
+    handleDeepLink(url);
   }
 });
+
+// Windows: a deep link that *launches* the app (no instance running yet)
+// arrives in this process's own argv, not via second-instance.
+const coldStartDeepLink = process.argv.find(arg => arg.startsWith('stacklist://'));
+if (coldStartDeepLink) {
+  handleDeepLink(coldStartDeepLink);
+}
 
 // ---------------------------------------------------------------------------
 // Protocol handler — stacklist:// deep links
@@ -56,11 +108,8 @@ if (process.defaultApp && process.argv.length >= 2) {
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  if (mainWin) {
-    mainWin.show();
-    mainWin.focus();
-    mainWin.loadURL(url.replace(/^stacklist:\/\//, 'https://'));
-  }
+  // Buffers as pendingDeepLink when fired before the window exists (cold start).
+  handleDeepLink(url);
 });
 
 // ---------------------------------------------------------------------------
@@ -186,11 +235,7 @@ function createWindow() {
     // Firebase opens firebaseapp.com first, which then redirects to Google.
     const isAllowedPopup =
       hostname === 'localhost' ||
-      hostname.endsWith('stacklist.app') ||
-      hostname.endsWith('stacklist.com') ||
-      hostname.endsWith('firebaseapp.com') ||
-      hostname.endsWith('google.com') ||
-      hostname.endsWith('googleapis.com');
+      POPUP_HOSTS.some((d) => hostMatches(hostname, d));
 
     if (!isAllowedPopup) {
       shell.openExternal(url);
@@ -215,7 +260,7 @@ function createWindow() {
   win.webContents.on('will-navigate', (event, url) => {
     try {
       const { hostname } = new URL(url);
-      if (!hostname.endsWith('stacklist.app') && !hostname.endsWith('stacklist.com') && hostname !== 'localhost') {
+      if (!isAppHost(hostname)) {
         event.preventDefault();
         shell.openExternal(url);
       }
@@ -424,6 +469,12 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(buildMenu());
 
   mainWin = createWindow();
+
+  // Cold-start deep link: replace the default start URL with the link target.
+  if (pendingDeepLink) {
+    mainWin.loadURL(pendingDeepLink);
+    pendingDeepLink = null;
+  }
 
   // Flush any file dropped onto the dock before the window existed.
   mainWin.webContents.once('did-finish-load', () => {
