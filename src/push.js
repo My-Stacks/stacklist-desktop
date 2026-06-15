@@ -11,6 +11,7 @@ const MAX_PERSISTENT_IDS = 100;
 
 let receiver = null;
 let startPromise = null;
+let startedProjectId = null;
 
 /**
  * Start the FCM push receiver (or return the already-running instance's token).
@@ -21,11 +22,16 @@ let startPromise = null;
  * automatically.
  *
  * @param {{ projectId: string, appId: string, apiKey: string, messagingSenderId: string, vapidKey?: string }} config
- * @param {{ store: import('electron-store'), getWindow: () => Electron.BrowserWindow | null }} deps
+ * @param {{ store: import('electron-store'), getWindow: () => Electron.BrowserWindow | null, isAppHost: (hostname: string) => boolean }} deps
  * @returns {Promise<string|null>} FCM token to register with the backend, or null on failure
  */
-function startPush(config, { store, getWindow }) {
+function startPush(config, { store, getWindow, isAppHost }) {
+  // A re-init for a different Firebase project (logout→login, dev↔prod switch)
+  // must rebuild the receiver — otherwise the stale promise returns the prior
+  // project's token and the backend registers the wrong device.
+  if (startPromise && config.projectId !== startedProjectId) stopPush();
   if (startPromise) return startPromise;
+  startedProjectId = config.projectId;
 
   const { vapidKey, ...firebase } = config;
 
@@ -42,7 +48,7 @@ function startPush(config, { store, getWindow }) {
 
   receiver.onNotification(({ message, persistentId }) => {
     rememberPersistentId(store, persistentId);
-    showNotification(message, getWindow);
+    showNotification(message, getWindow, isAppHost);
   });
 
   startPromise = receiver
@@ -65,7 +71,7 @@ function rememberPersistentId(store, id) {
   store.set(STORE_PERSISTENT_IDS, ids.slice(-MAX_PERSISTENT_IDS));
 }
 
-function showNotification(message, getWindow) {
+function showNotification(message, getWindow, isAppHost) {
   if (!Notification.isSupported()) return;
 
   const data = message?.data ?? {};
@@ -78,15 +84,33 @@ function showNotification(message, getWindow) {
     if (!win) return;
     win.show();
     // data.url mirrors the deep-link contract the mobile app already uses.
-    if (data.url) win.webContents.send('electron:push-navigate', String(data.url));
+    // It's attacker-controllable (any sender can craft the payload), so forward
+    // only same-app targets — the renderer routes this client-side, bypassing
+    // the will-navigate guard.
+    const target = safeNavTarget(data.url, isAppHost);
+    if (target) win.webContents.send('electron:push-navigate', target);
   });
   notification.show();
+}
+
+// Returns a forwardable nav target, or null. Relative app paths ('/cards/1')
+// pass; absolute URLs only when their host is one of ours. '//' is rejected —
+// it's a protocol-relative URL to an arbitrary host, not a path.
+function safeNavTarget(url, isAppHost) {
+  if (typeof url !== 'string' || !url) return null;
+  if (url.startsWith('/') && !url.startsWith('//')) return url;
+  try {
+    return isAppHost(new URL(url).hostname) ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 function stopPush() {
   receiver?.destroy();
   receiver = null;
   startPromise = null;
+  startedProjectId = null;
 }
 
 module.exports = { startPush, stopPush };

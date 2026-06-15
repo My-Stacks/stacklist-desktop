@@ -461,7 +461,7 @@ ipcMain.handle('app:copy-url', () => {
 // Renderer (web app) supplies its Firebase web config + Web Push VAPID key once
 // authed; main registers the FCM token and returns it for backend registration.
 ipcMain.handle('push:init', (_e, config) =>
-  startPush(config, { store, getWindow: () => mainWin }),
+  startPush(config, { store, getWindow: () => mainWin, isAppHost }),
 );
 
 // ---------------------------------------------------------------------------
