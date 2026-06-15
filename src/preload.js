@@ -10,4 +10,8 @@ contextBridge.exposeInMainWorld('electronApp', {
   getVersion: ()   => ipcRenderer.invoke('app:get-version'),
   copyURL:    ()   => ipcRenderer.invoke('app:copy-url'),
   onFileDrop: (cb) => { ipcRenderer.on('electron:file-drop', (_, payload) => cb(payload)); },
+  // Push: renderer passes Firebase web config + VAPID key, gets back the FCM
+  // token to register via the existing registerDeviceToken callable.
+  initPush:       (config) => ipcRenderer.invoke('push:init', config),
+  onPushNavigate: (cb)     => { ipcRenderer.on('electron:push-navigate', (_, url) => cb(url)); },
 });

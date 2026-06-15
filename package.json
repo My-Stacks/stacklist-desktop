@@ -15,6 +15,7 @@
     "pack": "electron-builder --dir"
   },
   "dependencies": {
+    "@eneris/push-receiver": "^4.3.1",
     "electron-store": "^8.2.0",
     "electron-updater": "^6.0.0"
   },

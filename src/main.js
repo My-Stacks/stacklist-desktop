@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
+const { startPush, stopPush } = require('./push');
 
 // ---------------------------------------------------------------------------
 // Dev-mode detection
@@ -457,6 +458,12 @@ ipcMain.handle('app:copy-url', () => {
   if (mainWin) clipboard.writeText(mainWin.webContents.getURL());
 });
 
+// Renderer (web app) supplies its Firebase web config + Web Push VAPID key once
+// authed; main registers the FCM token and returns it for backend registration.
+ipcMain.handle('push:init', (_e, config) =>
+  startPush(config, { store, getWindow: () => mainWin, isAppHost }),
+);
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -538,6 +545,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  stopPush();
 });
 
 app.on('will-quit', () => {
