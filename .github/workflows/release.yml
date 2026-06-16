@@ -83,3 +83,87 @@ jobs:
           name: Stacklist-win
           path: dist/*.exe
           if-no-files-found: error
+
+  # After both platform builds publish the release, point the marketing site's
+  # download links at the new tag. Opens a PR on My-Stacks/stacklist-website and
+  # pings Slack. Tag-push releases only — manual workflow_dispatch runs are skipped.
+  sync-website:
+    needs: [build-mac, build-win]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Guard — require WEBSITE_REPO_TOKEN
+        id: guard
+        env:
+          WEBSITE_REPO_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
+        run: |
+          if [ -z "$WEBSITE_REPO_TOKEN" ]; then
+            echo "WEBSITE_REPO_TOKEN not set — skipping website download-link sync."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout stacklist-website
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: My-Stacks/stacklist-website
+          token: ${{ secrets.WEBSITE_REPO_TOKEN }}
+          ref: main
+
+      - name: Bump DESKTOP_VERSION and open PR
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          FILE="src/config/apps.ts"
+          CURRENT=$(grep -oE "const DESKTOP_VERSION = '[^']+'" "$FILE" | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" || true)
+          echo "Site currently at: ${CURRENT:-unknown} — new tag: ${TAG}"
+          if [ "$CURRENT" = "$TAG" ]; then
+            echo "Already pointing at ${TAG}; nothing to do."
+            exit 0
+          fi
+          BRANCH="chore/desktop-app-${TAG//./-}"
+          # Reuse an existing PR for this tag if a prior run made one.
+          EXISTING=$(gh pr list --repo My-Stacks/stacklist-website --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "PR already open: $EXISTING"
+            echo "PR_URL=$EXISTING" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Fresh automation branch (delete any stale remnant from a failed run).
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          sed -i "s/const DESKTOP_VERSION = '[^']*';/const DESKTOP_VERSION = '${TAG}';/" "$FILE"
+          git add "$FILE"
+          git commit -m "chore: point downloads at desktop ${TAG}"
+          git push -u origin "$BRANCH"
+          PR_URL=$(gh pr create \
+            --repo My-Stacks/stacklist-website \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: desktop downloads → ${TAG}" \
+            --body "Automated by the stacklist-desktop release workflow. Points the /apps Mac + Windows download links and sublabels at \`${TAG}\`. Release: https://github.com/My-Stacks/stacklist-desktop/releases/tag/${TAG}")
+          echo "Opened: $PR_URL"
+          echo "PR_URL=$PR_URL" >> "$GITHUB_ENV"
+          echo "### Downloads PR opened: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify Slack
+        if: steps.guard.outputs.skip == 'false' && env.PR_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TAG: ${{ github.ref_name }}
+          PR_URL: ${{ env.PR_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+            exit 0
+          fi
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":rocket: Stacklist desktop *${TAG}* is published. Download-link PR opened on stacklist-website: ${PR_URL}\"}" \
+            "$SLACK_WEBHOOK_URL"
