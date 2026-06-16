@@ -9,9 +9,12 @@ directories:
 files:
   - src/**/*
   - package.json
-  # Loaded at runtime for the tray (and dev dock) icon — buildResources are
-  # build-time only, so this must be listed explicitly to ship in the app.
+  # Loaded at runtime for the dev dock icon — buildResources are build-time
+  # only, so this must be listed explicitly to ship in the app.
   - build/icon.png
+  # Monochrome menu-bar/tray template (+ @2x retina variant), loaded at runtime.
+  - build/iconTemplate.png
+  - build/iconTemplate@2x.png
 
 # Registers stacklist:// in Info.plist (CFBundleURLTypes) — without this,
 # setAsDefaultProtocolClient is a no-op on macOS and deep links never reach
