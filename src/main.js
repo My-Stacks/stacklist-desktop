@@ -495,8 +495,11 @@ app.whenReady().then(() => {
   // Tray icon — keeps the app accessible from the menu bar (Mac) or system
   // tray (Windows) even when the window is hidden.
   // ---------------------------------------------------------------------------
-  const trayIconPath = path.join(__dirname, '..', 'build', 'icon.png');
-  const trayImg = nativeImage.createFromPath(trayIconPath).resize({ width: 16, height: 16 });
+  // Dedicated monochrome template (black glyph on transparent) — the full-color
+  // icon.png is opaque and would render as a solid block in the menu bar.
+  // nativeImage auto-loads iconTemplate@2x.png for retina bars.
+  const trayIconPath = path.join(__dirname, '..', 'build', 'iconTemplate.png');
+  const trayImg = nativeImage.createFromPath(trayIconPath);
   trayImg.setTemplateImage(true); // macOS: renders as monochrome template, adapts to dark/light bar
   tray = new Tray(trayImg);
   tray.setToolTip('Stacklist');
