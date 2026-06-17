@@ -1,21 +1,65 @@
 name: Release
 
+# Release-on-merge. A push to main releases ONLY when package.json carries a
+# version that isn't published yet — so the version bump rides inside the normal
+# PR and merging it is the single act that cuts the release. The `check` job is
+# the idempotency gate: pushes that don't bump the version (docs, CI, etc.) are
+# detected as already-released and skip the build entirely.
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      publish:
-        description: 'Publish to GitHub Releases'
+      force:
+        description: 'Force a release even if this version is already published'
         type: boolean
         default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Decide whether to release
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if [ "${FORCE:-false}" = "true" ]; then
+            echo "Force requested — will (re)build ${TAG}."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists — this push didn't bump the version. Skipping."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release for ${TAG} yet — building & publishing."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-mac:
+    needs: check
+    if: needs.check.outputs.release == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4.2.2
@@ -38,14 +82,9 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          # Publish to GitHub Releases
+          # Publish to GitHub Releases (electron-builder creates the vX.Y.Z release + tag)
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [[ "${{ github.event_name }}" == "push" || "${{ inputs.publish }}" == "true" ]]; then
-            npm run publish
-          else
-            npm run build:mac
-          fi
+        run: npm run publish
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4.6.2
@@ -55,6 +94,8 @@ jobs:
           if-no-files-found: error
 
   build-win:
+    needs: check
+    if: needs.check.outputs.release == 'true'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4.2.2
@@ -70,12 +111,7 @@ jobs:
       - name: Build Windows installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.publish }}" -eq "true") {
-            npm run publish -- --win
-          } else {
-            npm run build:win
-          }
+        run: npm run publish -- --win
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4.6.2
@@ -85,12 +121,14 @@ jobs:
           if-no-files-found: error
 
   # After both platform builds publish the release, point the marketing site's
-  # download links at the new tag. Opens a PR on My-Stacks/stacklist-website and
-  # pings Slack. Tag-push releases only — manual workflow_dispatch runs are skipped.
+  # download links at the new version. Opens a PR on My-Stacks/stacklist-website
+  # and pings Slack.
   sync-website:
-    needs: [build-mac, build-win]
+    needs: [check, build-mac, build-win]
+    if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    env:
+      TAG: ${{ needs.check.outputs.tag }}
     steps:
       - name: Guard — require WEBSITE_REPO_TOKEN
         id: guard
@@ -116,7 +154,6 @@ jobs:
         if: steps.guard.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           FILE="src/config/apps.ts"
@@ -127,7 +164,6 @@ jobs:
             exit 0
           fi
           BRANCH="chore/desktop-app-${TAG//./-}"
-          # Reuse an existing PR for this tag if a prior run made one.
           EXISTING=$(gh pr list --repo My-Stacks/stacklist-website --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
           if [ -n "$EXISTING" ]; then
             echo "PR already open: $EXISTING"
@@ -136,7 +172,6 @@ jobs:
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Fresh automation branch (delete any stale remnant from a failed run).
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           sed -i "s/const DESKTOP_VERSION = '[^']*';/const DESKTOP_VERSION = '${TAG}';/" "$FILE"
@@ -157,7 +192,6 @@ jobs:
         if: steps.guard.outputs.skip == 'false' && env.PR_URL != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          TAG: ${{ github.ref_name }}
           PR_URL: ${{ env.PR_URL }}
         run: |
           if [ -z "$SLACK_WEBHOOK_URL" ]; then

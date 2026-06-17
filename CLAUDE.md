@@ -34,22 +34,25 @@ npm run publish      # Build + publish to GitHub Releases (used by CI only)
 | Command | When to use |
 |---------|-------------|
 | `/plan` | A web change landed — check if the desktop shell needs updating |
-| `/build-tag` | **Preferred release path.** Reads the latest *remote* tag, bumps, tags, pushes — CI builds, publishes, and auto-opens the website download-links PR |
+| `/build-tag` | **Preferred release path.** Bumps `package.json` on a `chore/release-vX.Y.Z` branch and opens a PR. Merging that PR is what releases (see below). |
 | `/sync-downloads` | Manual fallback: point `stacklist-website` download links at the latest release + open a PR (use if the CI auto-PR didn't fire) |
-| `/ship` | Older release path: bumps version, verifies build locally, tags, pushes (does *not* trigger the website sync any differently — sync is CI-side) |
-| `/version-bump` | Change version string only (no tag, no push) |
+| `/version-bump` | Change version string only (no commit, no PR) |
 | `/quality` | Quick sanity build before committing |
 
-> `/build-tag` reads the latest **remote** tag (not local `package.json`), so a stale local clone can't recreate an existing version. `/ship` bumps off local `package.json` — pull `main` first if you use it.
+> Releases are **merge-driven**: the version lives in `package.json`, and merging a version bump to `main` is the single act that cuts the release. There is no manual `git tag` — electron-builder creates the `vX.Y.Z` GitHub Release (and its tag) on publish.
 
-## Release flow
+## Release flow (release-on-merge)
 
-1. `/build-tag` → bumps `package.json` version, commits, pushes tag `vX.Y.Z`
-2. GitHub Actions (`release.yml`) triggers → `build-mac` + `build-win` build signed DMG + zip for macOS, NSIS for Windows
-3. Artifacts published to GitHub Releases
-4. `sync-website` job (after both builds) → bumps `DESKTOP_VERSION` in `stacklist-website`, opens a PR against `main`, posts to Slack
-5. **Review & merge that PR** → `stacklist.com/apps` download links now point at the new version
-6. Running instances of the app pick up the update on next launch via `electron-updater`
+1. Bump `version` in `package.json` — either in your feature PR, or via `/build-tag` which opens a dedicated bump PR
+2. The **`version-check`** workflow comments on the PR: "will release vX.Y.Z" / "no bump → no release" / ❌ fails if that version is already published
+3. **Merge to `main`** → `release.yml` runs:
+   - `check` job: if `vX.Y.Z` is already released → skip (this push didn't bump). Otherwise →
+   - `build-mac` + `build-win` → `npm run publish` → electron-builder publishes the signed DMG/zip + NSIS installer to GitHub Releases (creating the `vX.Y.Z` release + tag)
+   - `sync-website` → bumps `DESKTOP_VERSION` in `stacklist-website`, opens a PR against `main`, posts to Slack
+4. **Review & merge the website PR** → `stacklist.com/apps` download links now point at the new version
+5. Running instances of the app pick up the update on next launch via `electron-updater`
+
+Pushes to `main` that **don't** bump the version (docs, CI, refactors) are detected by the `check` job as already-released and **skip the build entirely** — no wasted release.
 
 **Users never need to re-download the DMG** — `electron-updater` delivers updates in-app automatically.
 
@@ -61,9 +64,9 @@ The `/apps` page download links live in `stacklist-website` (local clone: `../st
 const DESKTOP_VERSION = 'v1.0.22';
 ```
 
-That one value drives **both** the Mac/Windows download hrefs and their visible sublabels. The `sync-website` CI job (step 4 above) bumps it automatically on each release; `/sync-downloads` does the same by hand. Asset URLs are derived as `Stacklist-<ver>-arm64.dmg` and `Stacklist-Setup-<ver>.exe`.
+That one value drives **both** the Mac/Windows download hrefs and their visible sublabels. The `sync-website` CI job bumps it automatically after each release publishes; `/sync-downloads` does the same by hand. Asset URLs are derived as `Stacklist-<ver>-arm64.dmg` and `Stacklist-Setup-<ver>.exe`.
 
-The `sync-website` job is **tag-push only**, **skips cleanly** if `WEBSITE_REPO_TOKEN` is unset, is **idempotent** (no-ops when already in sync, reuses an open PR), and **never auto-merges** — links only flip after the PR is approved.
+The `sync-website` job runs only when a release was actually cut, **skips cleanly** if `WEBSITE_REPO_TOKEN` is unset, is **idempotent** (no-ops when already in sync, reuses an open PR), and **never auto-merges** — links only flip after the PR is approved.
 
 ## Auto-update status
 

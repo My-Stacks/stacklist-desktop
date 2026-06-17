@@ -1,0 +1,78 @@
+name: Version check
+
+# Reminds reviewers what a PR will (or won't) release, and blocks the one unsafe
+# case: bumping to a version that's already published. This is the guardrail for
+# the release-on-merge model — it never forces a bump, it just makes the outcome
+# obvious and prevents clobbering an existing release.
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Compare versions
+        id: cmp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          HEAD_V=$(node -p "require('./package.json').version")
+          git fetch origin "$BASE_REF" --depth=1
+          git show "origin/${BASE_REF}:package.json" > /tmp/base-package.json
+          BASE_V=$(node -p "require('/tmp/base-package.json').version")
+          TAG="v${HEAD_V}"
+          echo "head=${HEAD_V}" >> "$GITHUB_OUTPUT"
+          echo "base=${BASE_V}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if [ "$HEAD_V" = "$BASE_V" ]; then
+            echo "state=unchanged" >> "$GITHUB_OUTPUT"
+          elif gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "state=collision" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=bumped" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upsert PR comment
+        uses: actions/github-script@v7.0.1
+        env:
+          STATE: ${{ steps.cmp.outputs.state }}
+          HEAD_V: ${{ steps.cmp.outputs.head }}
+          BASE_V: ${{ steps.cmp.outputs.base }}
+          TAG: ${{ steps.cmp.outputs.tag }}
+        with:
+          script: |
+            const { STATE, HEAD_V, BASE_V, TAG } = process.env;
+            const marker = '<!-- version-check -->';
+            let body;
+            if (STATE === 'unchanged') {
+              body = `${marker}\n### 🛎️ Version check — reminder\nThis PR does **not** bump the version (still \`${HEAD_V}\`), so merging it will **not** cut a desktop release.\n\nIf this PR is meant to ship a new desktop build, bump \`version\` in \`package.json\` before merging. Otherwise you're all set. ✅`;
+            } else if (STATE === 'collision') {
+              body = `${marker}\n### ❌ Version check — failed\n\`package.json\` is \`${HEAD_V}\`, but **${TAG} is already released**. Bump to a new, higher version before merging — otherwise the release-on-merge build would collide with an existing release.`;
+            } else {
+              body = `${marker}\n### ✅ Version check — release ready\nThis PR bumps \`${BASE_V}\` → **\`${HEAD_V}\`**. Merging to \`main\` will build & publish **${TAG}**, then open the download-links PR on stacklist-website and ping Slack.`;
+            }
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail on version collision
+        if: steps.cmp.outputs.state == 'collision'
+        run: |
+          echo "::error::package.json version ${{ steps.cmp.outputs.head }} is already released — bump to a new version."
+          exit 1
