@@ -29,7 +29,8 @@ let pendingDeepLink = null;
 // would let e.g. "evilgoogle.com" pass as "google.com".
 // ---------------------------------------------------------------------------
 const APP_HOSTS = ['stacklist.com', 'stacklist.app'];
-const POPUP_HOSTS = [...APP_HOSTS, 'firebaseapp.com', 'google.com', 'googleapis.com'];
+// OAuth flow opens firebaseapp.com first, which redirects to Google.
+const OAUTH_POPUP_HOSTS = ['firebaseapp.com', 'google.com', 'googleapis.com'];
 
 function hostMatches(hostname, domain) {
   return hostname === domain || hostname.endsWith('.' + domain);
@@ -232,29 +233,32 @@ function createWindow() {
 
     console.log('[electron] window.open:', url);
 
-    // Allow OAuth + app popups to open as native Electron windows.
-    // Firebase opens firebaseapp.com first, which then redirects to Google.
-    const isAllowedPopup =
-      hostname === 'localhost' ||
-      POPUP_HOSTS.some((d) => hostMatches(hostname, d));
+    // OAuth popups open as native Electron child windows.
+    if (OAUTH_POPUP_HOSTS.some((d) => hostMatches(hostname, d))) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 500,
+          height: 650,
+          autoHideMenuBar: true,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+          },
+        },
+      };
+    }
 
-    if (!isAllowedPopup) {
-      shell.openExternal(url);
+    // Our own pages must never spawn a separate window (DES-6: was a tiny
+    // 500×650 popup) — navigate in the main window so the user stays in-app.
+    if (isAppHost(hostname)) {
+      win.loadURL(url);
       return { action: 'deny' };
     }
 
-    return {
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        width: 500,
-        height: 650,
-        autoHideMenuBar: true,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
-      },
-    };
+    // Everything else → system browser.
+    shell.openExternal(url);
+    return { action: 'deny' };
   });
 
   // External-link handling: same-window navigations
