@@ -90,6 +90,9 @@ function showNotification(message, getWindow, isAppHost) {
     const target = safeNavTarget(data.url, isAppHost);
     if (target) win.webContents.send('electron:push-navigate', target);
   });
+  // Electron 42+ on macOS uses UNNotification, which only displays for a
+  // code-signed app; otherwise the notification emits 'failed' instead.
+  notification.on('failed', (_e, error) => console.error('[push] notification failed:', error));
   notification.show();
 }
 
