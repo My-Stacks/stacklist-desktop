@@ -277,6 +277,11 @@ function createWindow() {
   return win;
 }
 
+// Electron 44+: clipboard.writeText returns a Promise.
+async function copyPageURL() {
+  if (mainWin) await clipboard.writeText(mainWin.webContents.getURL());
+}
+
 // ---------------------------------------------------------------------------
 // Application menu
 // ---------------------------------------------------------------------------
@@ -341,7 +346,7 @@ function buildMenu() {
         {
           label: 'Copy Page URL',
           accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => { if (mainWin) clipboard.writeText(mainWin.webContents.getURL()); },
+          click: () => { copyPageURL().catch((err) => console.error('[clipboard] copy failed:', err)); },
         },
       ],
     },
@@ -458,9 +463,7 @@ ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.on('app:get-version-sync', (e) => {
   e.returnValue = app.getVersion();
 });
-ipcMain.handle('app:copy-url', () => {
-  if (mainWin) clipboard.writeText(mainWin.webContents.getURL());
-});
+ipcMain.handle('app:copy-url', () => copyPageURL());
 
 // Renderer (web app) supplies its Firebase web config + Web Push VAPID key once
 // authed; main registers the FCM token and returns it for backend registration.

@@ -82,7 +82,9 @@ Until then, the web app itself updates instantly (it's just a URL), so no deskto
 ## Key implementation notes
 
 - **Production URL**: `https://stacklist.com/login` — loads the app login directly, bypassing the marketing homepage redirect
-- **Dev dock name**: `scripts/rename-dev-electron.sh` patches `node_modules/electron/dist/` on `postinstall` so the dock shows "Stacklist Dev" instead of "Electron"
+- **Dev dock name**: `scripts/rename-dev-electron.sh` runs as `prestart`: it downloads the Electron binary if missing (Electron 42+ no longer downloads it on `npm install`), then patches `node_modules/electron/dist/` so the dock shows "Stacklist Dev" instead of "Electron"
+- **macOS notifications need a signed app** (Electron 42+ uses `UNNotification`): `npm start` and local unsigned builds emit `failed` instead of showing; test push notifications only on a Developer ID signed build
+- **Clipboard is async** (Electron 44+): `clipboard.writeText` returns a Promise, so await or `.catch` it
 - **User agent**: Electron token stripped — server sees plain Chrome UA
 - **OAuth popups**: Firebase opens `firebaseapp.com` first. The `setWindowOpenHandler` allowlist includes `firebaseapp.com`, `google.com`, `googleapis.com`, `stacklist.com`, and `localhost`
 - **External links**: anything outside `stacklist.com` / `stacklist.app` opens in the system browser

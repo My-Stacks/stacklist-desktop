@@ -6,7 +6,7 @@
   "author": "Stacklist",
   "license": "UNLICENSED",
   "scripts": {
-    "postinstall": "sh scripts/rename-dev-electron.sh",
+    "prestart": "sh scripts/rename-dev-electron.sh",
     "start": "electron .",
     "build:mac": "electron-builder --mac --publish=never",
     "build:win": "electron-builder --win --publish=never",
@@ -17,10 +17,10 @@
   "dependencies": {
     "@eneris/push-receiver": "^4.3.1",
     "electron-store": "^8.2.0",
-    "electron-updater": "^6.0.0"
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^26.0.0"
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
   }
 }
