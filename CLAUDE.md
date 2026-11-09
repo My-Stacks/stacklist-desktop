@@ -56,6 +56,16 @@ Pushes to `main` that **don't** bump the version (docs, CI, refactors) are detec
 
 **Users never need to re-download the DMG** — `electron-updater` delivers updates in-app automatically.
 
+### Signed test build (before a bump)
+
+A signed build can only come from CI: no local Mac holds the Developer ID certificate. To test a change on a signed build without releasing it (for example push notifications, which need a signed app):
+
+```bash
+gh workflow run release.yml --repo My-Stacks/stacklist-desktop --ref <branch> -f test_build=true
+```
+
+It builds, signs and notarizes the Mac DMG and zip and builds the Windows installer with `--publish=never`, then attaches them to the run as the `Stacklist-mac` and `Stacklist-win` artifacts. It creates no release and no tag, leaves `latest-mac.yml` alone, and opens no website PR. A test build never publishes, even when `force` is also ticked. The files carry the current `package.json` version, so do not hand them to users.
+
 ### Website download links (single source of truth)
 
 The `/apps` page download links live in `stacklist-website` (local clone: `../stacklist-hub`) at `src/config/apps.ts` — a single constant:

@@ -15,6 +15,10 @@ on:
         description: 'Force a release even if this version is already published'
         type: boolean
         default: false
+      test_build:
+        description: 'Signed + notarized test build only: no release, no update feed, files as workflow artifacts'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,6 +34,7 @@ jobs:
       release: ${{ steps.decide.outputs.release }}
       version: ${{ steps.decide.outputs.version }}
       tag: ${{ steps.decide.outputs.tag }}
+      test: ${{ steps.decide.outputs.test }}
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -38,12 +43,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE: ${{ inputs.force }}
+          TEST_BUILD: ${{ inputs.test_build }}
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
           TAG="v${VERSION}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # A test build never publishes, even when force is also ticked.
+          if [ "${TEST_BUILD:-false}" = "true" ]; then
+            echo "Test build of ${TAG}: signed + notarized, nothing published."
+            echo "test=true" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "test=false" >> "$GITHUB_OUTPUT"
           if [ "${FORCE:-false}" = "true" ]; then
             echo "Force requested — will (re)build ${TAG}."
             echo "release=true" >> "$GITHUB_OUTPUT"
@@ -59,7 +73,7 @@ jobs:
 
   build-mac:
     needs: check
-    if: needs.check.outputs.release == 'true'
+    if: needs.check.outputs.release == 'true' || needs.check.outputs.test == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4.2.2
@@ -84,7 +98,8 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           # Publish to GitHub Releases (electron-builder creates the vX.Y.Z release + tag)
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish
+        # A test build signs and notarizes the same way but publishes nothing.
+        run: npm run ${{ needs.check.outputs.test == 'true' && 'build:mac' || 'publish' }}
 
       # electron-builder does not copy mac.minimumSystemVersion into
       # latest-mac.yml, and it uploads that file straight from memory, so it
@@ -93,6 +108,7 @@ jobs:
       # against os.release(), the Darwin kernel version: 22.0.0 is macOS 13.
       # Without it, macOS 11/12 users would be offered an update that won't open.
       - name: Hold the update back from macOS older than 13
+        if: needs.check.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.check.outputs.tag }}
@@ -110,12 +126,15 @@ jobs:
         uses: actions/upload-artifact@v4.6.2
         with:
           name: Stacklist-mac
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
           if-no-files-found: error
 
   build-win:
     needs: check
-    if: needs.check.outputs.release == 'true'
+    if: needs.check.outputs.release == 'true' || needs.check.outputs.test == 'true'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4.2.2
@@ -131,7 +150,7 @@ jobs:
       - name: Build Windows installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish -- --win
+        run: npm run ${{ needs.check.outputs.test == 'true' && 'build:win' || 'publish -- --win' }}
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4.6.2
