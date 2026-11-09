@@ -70,14 +70,15 @@ The `sync-website` job runs only when a release was actually cut, **skips cleanl
 
 ## Auto-update status
 
-`electron-updater` is configured and will check GitHub Releases (`My-Stacks/stacklist-desktop`) on launch.
+`electron-updater` checks GitHub Releases (`My-Stacks/stacklist-desktop`) on launch and asks before downloading.
 
-⚠️ **Currently blocked on signing**: auto-update requires a **Developer ID Application** certificate (Account Holder role on Apple Developer). The current cert is "Apple Development" only (Admin role). Once the Account Holder provides the cert:
-1. Export as `.p12`, base64-encode, save as `CSC_LINK` GitHub secret
-2. Save the password as `CSC_KEY_PASSWORD`
-3. Re-run the release workflow — the new DMG will be signed, notarized, and auto-updates will work
+Signing works. Releases since v1.0.23 are signed with the **Developer ID Application: Stacks, Incorporated (66H9U7SPZQ)** certificate and notarized in CI (`CSC_LINK`, `CSC_KEY_PASSWORD` and the `APPLE_*` secrets below), so Gatekeeper accepts them and in-app updates install.
 
-Until then, the web app itself updates instantly (it's just a URL), so no desktop release is needed for web-only changes.
+**macOS minimum is 13 (Ventura)** from the Electron 45 upgrade on (Electron 44+ dropped macOS 12). It is enforced twice:
+- `mac.minimumSystemVersion: '13.0'` in `electron-builder.yml` sets `LSMinimumSystemVersion`, so a fresh install on macOS 12 or older is refused.
+- `release.yml` re-uploads `latest-mac.yml` with `minimumSystemVersion: 22.0.0` after publishing, so installed apps on macOS 11/12 are never offered the update. electron-updater compares it with `os.release()`, the Darwin kernel version (22 = macOS 13). electron-builder does not write this field itself; keep that step when editing the workflow.
+
+The web app itself updates instantly (it's just a URL), so no desktop release is needed for web-only changes.
 
 ## Key implementation notes
 
@@ -86,7 +87,7 @@ Until then, the web app itself updates instantly (it's just a URL), so no deskto
 - **macOS notifications need a signed app** (Electron 42+ uses `UNNotification`): `npm start` and local unsigned builds emit `failed` instead of showing; test push notifications only on a Developer ID signed build
 - **Clipboard is async** (Electron 44+): `clipboard.writeText` returns a Promise, so await or `.catch` it
 - **User agent**: Electron token stripped — server sees plain Chrome UA
-- **OAuth popups**: Firebase opens `firebaseapp.com` first. The `setWindowOpenHandler` allowlist includes `firebaseapp.com`, `google.com`, `googleapis.com`, `stacklist.com`, and `localhost`
+- **OAuth popups**: the web app's Firebase `authDomain` is `auth.stacklist.com`, so Google sign-in opens `https://auth.stacklist.com/__/auth/handler`. `setWindowOpenHandler` opens any app-host URL under `/__/auth/`, plus `firebaseapp.com`, `google.com` and `googleapis.com`, as a child popup **before** the app-host rule that keeps our own pages in the main window. Loaded in the main window, the handler loses its opener and sign-in never finishes
 - **External links**: anything outside `stacklist.com` / `stacklist.app` opens in the system browser
 
 ## Environment / secrets (GitHub Actions)

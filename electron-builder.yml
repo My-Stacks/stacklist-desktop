@@ -45,6 +45,10 @@ mac:
     - target: dmg
     - target: zip
   category: public.app-category.productivity
+  # Electron 44+ needs macOS 13 (Ventura). Sets LSMinimumSystemVersion, so a
+  # fresh install on macOS 12 or older is refused by the OS. Installed apps
+  # are kept off the update by the minimumSystemVersion step in release.yml.
+  minimumSystemVersion: '13.0'
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist

@@ -86,6 +86,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish
 
+      # electron-builder does not copy mac.minimumSystemVersion into
+      # latest-mac.yml, and it uploads that file straight from memory, so it
+      # can't be edited before publish. Re-upload it with the field added.
+      # electron-updater (6.x, including the 6.8.3 in v1.0.23) compares this
+      # against os.release(), the Darwin kernel version: 22.0.0 is macOS 13.
+      # Without it, macOS 11/12 users would be offered an update that won't open.
+      - name: Hold the update back from macOS older than 13
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          set -euo pipefail
+          FILE=dist/latest-mac.yml
+          test -f "$FILE"
+          grep -q '^minimumSystemVersion:' "$FILE" || printf 'minimumSystemVersion: 22.0.0\n' >> "$FILE"
+          gh release upload "$TAG" "$FILE" --clobber --repo "${{ github.repository }}"
+          gh release download "$TAG" --pattern latest-mac.yml --output - --repo "${{ github.repository }}" \
+            | grep -qx 'minimumSystemVersion: 22.0.0'
+          echo "latest-mac.yml on ${TAG} now carries minimumSystemVersion: 22.0.0"
+
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4.6.2
         with:
