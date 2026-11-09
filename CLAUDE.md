@@ -47,7 +47,7 @@ npm run publish      # Build + publish to GitHub Releases (used by CI only)
 2. The **`version-check`** workflow comments on the PR: "will release vX.Y.Z" / "no bump → no release" / ❌ fails if that version is already published
 3. **Merge to `main`** → `release.yml` runs:
    - `check` job: if `vX.Y.Z` is already released → skip (this push didn't bump). Otherwise →
-   - `build-mac` + `build-win` → `npm run publish` → electron-builder publishes the signed DMG/zip + NSIS installer to GitHub Releases (creating the `vX.Y.Z` release + tag)
+   - `build-mac`, then `build-win` → `npm run publish` → electron-builder publishes the signed DMG/zip + NSIS installer to GitHub Releases (`build-mac` creates the `vX.Y.Z` release + tag; `build-win` waits for it, because two jobs creating the release at once makes one fail)
    - `sync-website` → bumps `DESKTOP_VERSION` in `stacklist-website`, opens a PR against `main`, posts to Slack
 4. **Review & merge the website PR** → `stacklist.com/apps` download links now point at the new version
 5. Running instances of the app pick up the update on next launch via `electron-updater`

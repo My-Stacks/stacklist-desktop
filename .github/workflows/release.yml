@@ -132,8 +132,12 @@ jobs:
             dist/latest-mac.yml
           if-no-files-found: error
 
+  # Runs after build-mac so only one job creates the vX.Y.Z GitHub release.
+  # In parallel both tried to create it at once, GitHub refused the second
+  # ("Published releases must have a valid tag") and v1.0.24 shipped without
+  # latest.yml, so Windows installs weren't offered the update.
   build-win:
-    needs: check
+    needs: [check, build-mac]
     if: needs.check.outputs.release == 'true' || needs.check.outputs.test == 'true'
     runs-on: windows-2025
     steps:
