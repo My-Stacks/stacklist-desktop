@@ -8,10 +8,12 @@ const PushReceiver = require('@eneris/push-receiver').default;
 const STORE_CREDENTIALS = 'push.credentials';
 const STORE_PERSISTENT_IDS = 'push.persistentIds';
 const MAX_PERSISTENT_IDS = 100;
+const MAX_RECONNECT_DELAY_MS = 60 * 1000;
 
 let receiver = null;
 let startPromise = null;
 let startedProjectId = null;
+let reconnectTimer = null;
 
 /**
  * Start the FCM push receiver (or return the already-running instance's token).
@@ -51,8 +53,10 @@ function startPush(config, { store, getWindow, isAppHost }) {
     showNotification(message, getWindow, isAppHost);
   });
 
-  startPromise = receiver
-    .connect()
+  const connectOnce = receiver.connect;
+  keepReconnecting(receiver, connectOnce);
+
+  startPromise = connectOnce()
     .then(() => receiver.fcmToken || null)
     .catch((err) => {
       console.error('[push] connect failed:', err);
@@ -62,6 +66,35 @@ function startPush(config, { store, getWindow, isAppHost }) {
     });
 
   return startPromise;
+}
+
+// After a dropped socket, @eneris/push-receiver 4.x reconnects by calling
+// `this.connect()` from a timer, without a catch. If that attempt fails before
+// a socket exists (offline, e.g. right after the laptop wakes), the rejection
+// is unhandled and nothing schedules another attempt: push stays dead until the
+// app restarts. `connect` is an instance property, so wrap it: the library's
+// own retries go through the wrapper, and a failed one is retried with backoff.
+// The first connect calls the original, so a bad config still returns null.
+function keepReconnecting(current, connectOnce) {
+  let failures = 0;
+  current.connect = () =>
+    connectOnce().then(
+      (result) => {
+        if (failures) console.log(`[push] reconnected after ${failures} failed attempt(s)`);
+        failures = 0;
+        return result;
+      },
+      (err) => {
+        if (receiver !== current) return; // stopped or replaced meanwhile
+        failures += 1;
+        if (failures === 1) console.error('[push] reconnect failed, retrying with backoff:', err?.message || err);
+        const delay = Math.min(1000 * 2 ** failures, MAX_RECONNECT_DELAY_MS);
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          if (receiver === current) current.connect();
+        }, delay);
+      },
+    );
 }
 
 function rememberPersistentId(store, id) {
@@ -110,6 +143,8 @@ function safeNavTarget(url, isAppHost) {
 }
 
 function stopPush() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
   receiver?.destroy();
   receiver = null;
   startPromise = null;
