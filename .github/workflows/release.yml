@@ -132,8 +132,12 @@ jobs:
             dist/latest-mac.yml
           if-no-files-found: error
 
+  # Runs after build-mac so only one job creates the vX.Y.Z GitHub release.
+  # In parallel both tried to create it at once, GitHub refused the second
+  # ("Published releases must have a valid tag") and v1.0.24 shipped without
+  # latest.yml, so Windows installs weren't offered the update.
   build-win:
-    needs: check
+    needs: [check, build-mac]
     if: needs.check.outputs.release == 'true' || needs.check.outputs.test == 'true'
     runs-on: windows-2025
     steps:
@@ -160,8 +164,9 @@ jobs:
           if-no-files-found: error
 
   # After both platform builds publish the release, point the marketing site's
-  # download links at the new version. Opens a PR on My-Stacks/stacklist-website
-  # and pings Slack.
+  # download links at the new version. The marketing site lives in
+  # My-Stacks/stacklist-platform-v2 (apps/marketing); this opens a PR there
+  # against dev and pings Slack. stacklist-website is no longer deployed.
   sync-website:
     needs: [check, build-mac, build-win]
     if: needs.check.outputs.release == 'true'
@@ -181,13 +186,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout stacklist-website
+      - name: Checkout the marketing config in stacklist-platform-v2
         if: steps.guard.outputs.skip == 'false'
         uses: actions/checkout@v4.2.2
         with:
-          repository: My-Stacks/stacklist-website
+          repository: My-Stacks/stacklist-platform-v2
           token: ${{ secrets.WEBSITE_REPO_TOKEN }}
-          ref: main
+          ref: dev
+          sparse-checkout: apps/marketing/src/config
 
       - name: Bump DESKTOP_VERSION and open PR
         if: steps.guard.outputs.skip == 'false'
@@ -195,7 +201,7 @@ jobs:
           GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
         run: |
           set -euo pipefail
-          FILE="src/config/apps.ts"
+          FILE="apps/marketing/src/config/apps.ts"
           CURRENT=$(grep -oE "const DESKTOP_VERSION = '[^']+'" "$FILE" | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" || true)
           echo "Site currently at: ${CURRENT:-unknown} — new tag: ${TAG}"
           if [ "$CURRENT" = "$TAG" ]; then
@@ -203,7 +209,7 @@ jobs:
             exit 0
           fi
           BRANCH="chore/desktop-app-${TAG//./-}"
-          EXISTING=$(gh pr list --repo My-Stacks/stacklist-website --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+          EXISTING=$(gh pr list --repo My-Stacks/stacklist-platform-v2 --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
           if [ -n "$EXISTING" ]; then
             echo "PR already open: $EXISTING"
             echo "PR_URL=$EXISTING" >> "$GITHUB_ENV"
@@ -215,14 +221,16 @@ jobs:
           git checkout -b "$BRANCH"
           sed -i "s/const DESKTOP_VERSION = '[^']*';/const DESKTOP_VERSION = '${TAG}';/" "$FILE"
           git add "$FILE"
-          git commit -m "chore: point downloads at desktop ${TAG}"
+          git commit -m "chore(marketing): point desktop downloads at ${TAG}"
           git push -u origin "$BRANCH"
           PR_URL=$(gh pr create \
-            --repo My-Stacks/stacklist-website \
-            --base main \
+            --repo My-Stacks/stacklist-platform-v2 \
+            --base dev \
             --head "$BRANCH" \
-            --title "chore: desktop downloads → ${TAG}" \
-            --body "Automated by the stacklist-desktop release workflow. Points the /apps Mac + Windows download links and sublabels at \`${TAG}\`. Release: https://github.com/My-Stacks/stacklist-desktop/releases/tag/${TAG}")
+            --title "chore(marketing): desktop downloads → ${TAG}" \
+            --body "Automated by the stacklist-desktop release workflow. Points the /apps Mac + Windows download links and sublabels at \`${TAG}\` (\`DESKTOP_VERSION\` in \`apps/marketing/src/config/apps.ts\`). Release: https://github.com/My-Stacks/stacklist-desktop/releases/tag/${TAG}
+
+          This path is on the SEO-critical list, so while an SEO freeze is on the freeze guard fails until someone adds the \`seo-freeze-override\` label. The live /apps page changes once this reaches main.")
           echo "Opened: $PR_URL"
           echo "PR_URL=$PR_URL" >> "$GITHUB_ENV"
           echo "### Downloads PR opened: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
@@ -238,5 +246,5 @@ jobs:
             exit 0
           fi
           curl -sf -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\":rocket: Stacklist desktop *${TAG}* is published. Download-link PR opened on stacklist-website: ${PR_URL}\"}" \
+            --data "{\"text\":\":rocket: Stacklist desktop *${TAG}* is published. Download-link PR opened on stacklist-platform-v2: ${PR_URL}\"}" \
             "$SLACK_WEBHOOK_URL"
