@@ -59,7 +59,7 @@ jobs:
             } else if (STATE === 'collision') {
               body = `${marker}\n### ❌ Version check — failed\n\`package.json\` is \`${HEAD_V}\`, but **${TAG} is already released**. Bump to a new, higher version before merging — otherwise the release-on-merge build would collide with an existing release.`;
             } else {
-              body = `${marker}\n### ✅ Version check — release ready\nThis PR bumps \`${BASE_V}\` → **\`${HEAD_V}\`**. Merging to \`main\` will build & publish **${TAG}**, then open the download-links PR on stacklist-website and ping Slack.`;
+              body = `${marker}\n### ✅ Version check — release ready\nThis PR bumps \`${BASE_V}\` → **\`${HEAD_V}\`**. Merging to \`main\` will build & publish **${TAG}**, then open the download-links PR on stacklist-platform-v2 and ping Slack.`;
             }
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;

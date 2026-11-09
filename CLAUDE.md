@@ -35,7 +35,7 @@ npm run publish      # Build + publish to GitHub Releases (used by CI only)
 |---------|-------------|
 | `/plan` | A web change landed — check if the desktop shell needs updating |
 | `/build-tag` | **Preferred release path.** Bumps `package.json` on a `chore/release-vX.Y.Z` branch and opens a PR. Merging that PR is what releases (see below). |
-| `/sync-downloads` | Manual fallback: point `stacklist-website` download links at the latest release + open a PR (use if the CI auto-PR didn't fire) |
+| `/sync-downloads` | Manual fallback: point the platform-v2 marketing download links at the latest release + open a PR (use if the CI auto-PR didn't fire) |
 | `/version-bump` | Change version string only (no commit, no PR) |
 | `/quality` | Quick sanity build before committing |
 
@@ -48,8 +48,8 @@ npm run publish      # Build + publish to GitHub Releases (used by CI only)
 3. **Merge to `main`** → `release.yml` runs:
    - `check` job: if `vX.Y.Z` is already released → skip (this push didn't bump). Otherwise →
    - `build-mac`, then `build-win` → `npm run publish` → electron-builder publishes the signed DMG/zip + NSIS installer to GitHub Releases (`build-mac` creates the `vX.Y.Z` release + tag; `build-win` waits for it, because two jobs creating the release at once makes one fail)
-   - `sync-website` → bumps `DESKTOP_VERSION` in `stacklist-website`, opens a PR against `main`, posts to Slack
-4. **Review & merge the website PR** → `stacklist.com/apps` download links now point at the new version
+   - `sync-website` → bumps `DESKTOP_VERSION` in stacklist-platform-v2 (`apps/marketing/src/config/apps.ts`), opens a PR against `dev`, posts to Slack
+4. **Review & merge the download-links PR** into `dev`; `stacklist.com/apps` points at the new version once it reaches `main`. During an SEO freeze it needs the `seo-freeze-override` label (`apps/marketing/src/config/**` is on the SEO-critical list)
 5. Running instances of the app pick up the update on next launch via `electron-updater`
 
 Pushes to `main` that **don't** bump the version (docs, CI, refactors) are detected by the `check` job as already-released and **skip the build entirely** — no wasted release.
@@ -68,11 +68,13 @@ It builds, signs and notarizes the Mac DMG and zip and builds the Windows instal
 
 ### Website download links (single source of truth)
 
-The `/apps` page download links live in `stacklist-website` (local clone: `../stacklist-hub`) at `src/config/apps.ts` — a single constant:
+The `/apps` page download links live in stacklist-platform-v2 at `apps/marketing/src/config/apps.ts` — a single constant:
 
 ```ts
-const DESKTOP_VERSION = 'v1.0.22';
+const DESKTOP_VERSION = 'v1.0.24';
 ```
+
+The old `stacklist-website` repo is no longer deployed; don't open PRs there.
 
 That one value drives **both** the Mac/Windows download hrefs and their visible sublabels. The `sync-website` CI job bumps it automatically after each release publishes; `/sync-downloads` does the same by hand. Asset URLs are derived as `Stacklist-<ver>-arm64.dmg` and `Stacklist-Setup-<ver>.exe`.
 
@@ -110,5 +112,5 @@ The web app itself updates instantly (it's just a URL), so no desktop release is
 | `APPLE_TEAM_ID` | 10-char Apple team ID |
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
 | `GH_TOKEN` | GitHub token with `contents: write` (auto-provided by Actions) |
-| `WEBSITE_REPO_TOKEN` | Fine-grained PAT with `contents:write` + `pull-requests:write` on `My-Stacks/stacklist-website` — lets the `sync-website` job open the download-links PR (the built-in `GITHUB_TOKEN` can't write to another repo) |
+| `WEBSITE_REPO_TOKEN` | Fine-grained PAT with `contents:write` + `pull-requests:write` on `My-Stacks/stacklist-platform-v2` — lets the `sync-website` job open the download-links PR (the built-in `GITHUB_TOKEN` can't write to another repo) |
 | `SLACK_WEBHOOK_URL` | Slack incoming webhook — `sync-website` posts the "downloads PR opened" notification |
