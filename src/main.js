@@ -31,6 +31,9 @@ let pendingDeepLink = null;
 const APP_HOSTS = ['stacklist.com', 'stacklist.app'];
 // OAuth flow opens firebaseapp.com first, which redirects to Google.
 const OAUTH_POPUP_HOSTS = ['firebaseapp.com', 'google.com', 'googleapis.com'];
+// Firebase's sign-in handler. The web app's authDomain is auth.stacklist.com,
+// so the Google popup starts on our own host at this path.
+const FIREBASE_AUTH_PATH = '/__/auth/';
 
 function hostMatches(hostname, domain) {
   return hostname === domain || hostname.endsWith('.' + domain);
@@ -225,16 +228,20 @@ function createWindow() {
   // ---------------------------------------------------------------------------
   win.webContents.setWindowOpenHandler(({ url }) => {
     let hostname;
+    let pathname;
     try {
-      hostname = new URL(url).hostname;
+      ({ hostname, pathname } = new URL(url));
     } catch {
       return { action: 'deny' };
     }
 
     console.log('[electron] window.open:', url);
 
-    // OAuth popups open as native Electron child windows.
-    if (OAUTH_POPUP_HOSTS.some((d) => hostMatches(hostname, d))) {
+    // OAuth popups open as native Electron child windows. This must run before
+    // the app-host check below: the Firebase handler lives on auth.stacklist.com,
+    // and loading it in the main window means sign-in can never finish.
+    const isFirebaseAuthPopup = isAppHost(hostname) && pathname.startsWith(FIREBASE_AUTH_PATH);
+    if (isFirebaseAuthPopup || OAUTH_POPUP_HOSTS.some((d) => hostMatches(hostname, d))) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
